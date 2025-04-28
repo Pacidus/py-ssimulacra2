@@ -1,40 +1,252 @@
-"""
-Core implementation of the SSIMULACRA2 image quality metric.
-Based on the original C++ implementation by Jon Sneyers, Cloudinary.
-"""
+"""SSIMULACRA2 implementation in Python."""
 
 import numpy as np
-from scipy import ndimage
 from PIL import Image
-import cv2
+from scipy import ndimage
 
-# Constants for SSIMULACRA2
+# Constants from the original implementation
 kC2 = 0.0009
 kNumScales = 6
 
+# Parameters for opsin absorbance - exact same values as in C++
+# From src/lib/jxl/opsin_params.h
+kM02 = 0.078
+kM00 = 0.30
+kM01 = 1.0 - kM02 - kM00  # Computed exactly as in C++
+
+kM12 = 0.078
+kM10 = 0.23
+kM11 = 1.0 - kM12 - kM10  # Computed exactly as in C++
+
+kM20 = 0.24342268924547819
+kM21 = 0.20476744424496821
+kM22 = 1.0 - kM20 - kM21  # Computed exactly as in C++
+
+kB0 = 0.0037930732552754493
+kB1 = kB0
+kB2 = kB0
+
+# Create the matrix and bias arrays exactly as in C++
+kOpsinAbsorbanceMatrix = np.array(
+    [kM00, kM01, kM02, kM10, kM11, kM12, kM20, kM21, kM22]
+)
+
+kOpsinAbsorbanceBias = np.array([kB0, kB1, kB2])
+
+
+def srgb_to_linear(img):
+    """Convert sRGB to linear RGB."""
+    # Handle the two-part curve
+    rgb = np.asarray(img, dtype=np.float32) / 255.0
+    mask = rgb <= 0.04045
+    rgb[mask] = rgb[mask] / 12.92
+    rgb[~mask] = ((rgb[~mask] + 0.055) / 1.055) ** 2.4
+    return rgb
+
+
+def linear_rgb_to_xyb(linear):
+    """Convert linear RGB to XYB color space."""
+    # Apply opsin absorbance (matrix multiplication)
+    r, g, b = linear[:, :, 0], linear[:, :, 1], linear[:, :, 2]
+
+    # Reshape the matrix for easier operations
+    matrix = kOpsinAbsorbanceMatrix.reshape(3, 3)
+
+    # Apply matrix multiplication
+    mixed0 = (
+        matrix[0, 0] * r + matrix[0, 1] * g + matrix[0, 2] * b + kOpsinAbsorbanceBias[0]
+    )
+    mixed1 = (
+        matrix[1, 0] * r + matrix[1, 1] * g + matrix[1, 2] * b + kOpsinAbsorbanceBias[1]
+    )
+    mixed2 = (
+        matrix[2, 0] * r + matrix[2, 1] * g + matrix[2, 2] * b + kOpsinAbsorbanceBias[2]
+    )
+
+    # Zero if negative
+    mixed0 = np.maximum(mixed0, 0)
+    mixed1 = np.maximum(mixed1, 0)
+    mixed2 = np.maximum(mixed2, 0)
+
+    # Apply cube root and subtract bias
+    mixed0 = np.cbrt(mixed0) - np.cbrt(kOpsinAbsorbanceBias[0])
+    mixed1 = np.cbrt(mixed1) - np.cbrt(kOpsinAbsorbanceBias[1])
+    mixed2 = np.cbrt(mixed2) - np.cbrt(kOpsinAbsorbanceBias[2])
+
+    # Store in XYB format
+    x = 0.5 * (mixed0 - mixed1)
+    y = 0.5 * (mixed0 + mixed1)
+    b_y = mixed2
+
+    return np.stack([x, y, b_y], axis=2)
+
+
+def make_positive_xyb(xyb):
+    """Adjust XYB values to positive range as in SSIMULACRA2."""
+    result = xyb.copy()
+
+    # MakePositiveXYB function from SSIMULACRA2
+    result[:, :, 2] = (result[:, :, 2] - result[:, :, 1]) + 0.55  # B-Y
+    result[:, :, 0] = result[:, :, 0] * 14.0 + 0.42  # X scaling
+    result[:, :, 1] += 0.01  # Y offset
+
+    return result
+
+
+def downsample(img, fx, fy):
+    """Downsample image by a factor along each dimension."""
+    h, w, c = img.shape
+    out_h, out_w = (h + fy - 1) // fy, (w + fx - 1) // fx
+    result = np.zeros((out_h, out_w, c), dtype=np.float32)
+
+    # This matches the C++ implementation's averaging approach
+    normalize = 1.0 / (fx * fy)
+
+    for ch in range(c):
+        for oy in range(out_h):
+            for ox in range(out_w):
+                sum_val = 0.0
+                for iy in range(fy):
+                    for ix in range(fx):
+                        x = min(ox * fx + ix, w - 1)
+                        y = min(oy * fy + iy, h - 1)
+                        sum_val += img[y, x, ch]
+                result[oy, ox, ch] = sum_val * normalize
+
+    return result
+
+
+def multiply_images(a, b):
+    """Element-wise multiplication of two images."""
+    return a * b
+
+
+def blur_image(img, sigma=1.5):
+    """Apply Gaussian blur to an image.
+
+    This uses scipy's Gaussian filter with mode='mirror' to
+    match the mirroring behavior in the C++ implementation.
+    """
+    # Apply gaussian blur to each channel separately to ensure precise handling
+    result = np.zeros_like(img)
+
+    for c in range(img.shape[2]):
+        # Use 'mirror' mode to match C++ boundary handling
+        # and truncate at 4*sigma to match typical Gaussian filter behavior
+        result[:, :, c] = ndimage.gaussian_filter(
+            img[:, :, c], sigma=sigma, mode="mirror", truncate=4.0
+        )
+
+    return result
+
+
+def ssim_map(m1, m2, s11, s22, s12):
+    """Compute the SSIM map between two images."""
+    h, w, c = m1.shape
+    plane_averages = np.zeros(c * 2)
+
+    # For each channel
+    for ch in range(c):
+        sum1 = np.zeros(2)
+
+        # Process each pixel
+        for y in range(h):
+            for x in range(w):
+                mu1 = m1[y, x, ch]
+                mu2 = m2[y, x, ch]
+                mu11 = mu1 * mu1
+                mu22 = mu2 * mu2
+                mu12 = mu1 * mu2
+
+                # Modified SSIM formula without the spurious gamma correction term
+                num_m = 1.0 - (mu1 - mu2) * (mu1 - mu2)
+                num_s = 2.0 * (s12[y, x, ch] - mu12) + kC2
+                denom_s = (s11[y, x, ch] - mu11) + (s22[y, x, ch] - mu22) + kC2
+
+                # Error score (1 - SSIM')
+                d = 1.0 - (num_m * num_s / denom_s)
+                d = max(d, 0.0)
+
+                # L1 and L4 norms
+                sum1[0] += d
+                sum1[1] += d**4
+
+        # Store averages
+        one_per_pixels = 1.0 / (h * w)
+        plane_averages[ch * 2] = one_per_pixels * sum1[0]
+        plane_averages[ch * 2 + 1] = (one_per_pixels * sum1[1]) ** 0.25
+
+    return plane_averages
+
+
+def edge_diff_map(img1, mu1, img2, mu2):
+    """Compute edge difference maps."""
+    h, w, c = img1.shape
+    plane_averages = np.zeros(c * 4)
+
+    # For each channel
+    for ch in range(c):
+        sum1 = np.zeros(4)
+
+        # Process each pixel
+        for y in range(h):
+            for x in range(w):
+                # Compute ratio of edge strengths
+                d1 = (1.0 + abs(img2[y, x, ch] - mu2[y, x, ch])) / (
+                    1.0 + abs(img1[y, x, ch] - mu1[y, x, ch])
+                ) - 1.0
+
+                # d1 > 0: distorted has edges where original is smooth (ringing/blockiness)
+                artifact = max(d1, 0.0)
+                sum1[0] += artifact
+                sum1[1] += artifact**4
+
+                # d1 < 0: original has edges where distorted is smooth (blurring)
+                detail_lost = max(-d1, 0.0)
+                sum1[2] += detail_lost
+                sum1[3] += detail_lost**4
+
+        # Store averages
+        one_per_pixels = 1.0 / (h * w)
+        plane_averages[ch * 4] = one_per_pixels * sum1[0]
+        plane_averages[ch * 4 + 1] = (one_per_pixels * sum1[1]) ** 0.25
+        plane_averages[ch * 4 + 2] = one_per_pixels * sum1[2]
+        plane_averages[ch * 4 + 3] = (one_per_pixels * sum1[3]) ** 0.25
+
+    return plane_averages
+
+
+def alpha_blend(img, alpha, bg=0.5):
+    """Alpha blend image with background color."""
+    if alpha is None:
+        return img
+
+    result = img.copy()
+    for c in range(3):
+        result[:, :, c] = alpha * img[:, :, c] + (1.0 - alpha) * bg
+
+    return result
+
 
 class MsssimScale:
-    """Represents scores at a specific scale."""
+    """Data structure for one scale's metrics."""
 
     def __init__(self):
-        self.avg_ssim = np.zeros(3 * 2)  # 3 channels x 2 norms
+        self.avg_ssim = np.zeros(3 * 2)  # 3 channels, 2 norms
         self.avg_edgediff = np.zeros(
             3 * 4
-        )  # 3 channels x 2 types of edge differences x 2 norms
+        )  # 3 channels, 4 values (ringing and blurring, each with 2 norms)
 
 
 class Msssim:
-    """Stores scores across multiple scales and computes the final score."""
+    """Multi-scale structural similarity metric."""
 
     def __init__(self):
         self.scales = []
 
     def score(self):
-        """
-        Compute the final SSIMULACRA2 score using the tuned weights.
-        Returns a value from 0 to 100, where 100 is perfect quality.
-        """
-        # These weights were obtained by optimizing against multiple image quality datasets
+        """Compute the final SSIMULACRA2 score."""
+        # These weights were obtained from the original C++ implementation
         weights = [
             0.0,
             0.0007376606707406586,
@@ -149,25 +361,20 @@ class Msssim:
         ssim = 0.0
         i = 0
 
-        # Sum all weighted scores across channels, scales, and norms
-        for c in range(3):  # Three channels: X, Y, B
+        # Apply weights to each component
+        for c in range(3):
             for scale in range(len(self.scales)):
-                for n in range(2):  # Two norms: L1 and L4
-                    # SSIM component
+                for n in range(2):
                     ssim += weights[i] * abs(self.scales[scale].avg_ssim[c * 2 + n])
                     i += 1
-
-                    # Ringing component
                     ssim += weights[i] * abs(self.scales[scale].avg_edgediff[c * 4 + n])
                     i += 1
-
-                    # Blurring component
                     ssim += weights[i] * abs(
                         self.scales[scale].avg_edgediff[c * 4 + n + 2]
                     )
                     i += 1
 
-        # Apply non-linear mapping to match perceptual scale
+        # Transform to final score
         ssim = ssim * 0.9562382616834844
         ssim = (
             2.326765642916932 * ssim
@@ -183,380 +390,113 @@ class Msssim:
         return ssim
 
 
-def rgb_to_xyb(img_rgb):
-    """
-    Convert RGB to XYB color space, approximating the JPEG XL transformation.
-
-    Args:
-        img_rgb: RGB image with values in range [0, 1]
-
-    Returns:
-        XYB image
-    """
-    # Linear RGB to XYB transformation (approximation of JPEG XL's transformation)
-    r, g, b = img_rgb[:, :, 0], img_rgb[:, :, 1], img_rgb[:, :, 2]
-
-    # Y (luminance)
-    y = 0.2126 * r + 0.7152 * g + 0.0722 * b
-
-    # X and B (color difference channels)
-    x = 0.5 * (r - g)
-    by = 0.5 * (b - y)
-
-    # Combine channels
-    img_xyb = np.stack([x, y, by], axis=-1)
-
-    return img_xyb
-
-
-def make_positive_xyb(img_xyb):
-    """
-    Normalize XYB values to a positive range [0,1] as in the C++ implementation.
-
-    Args:
-        img_xyb: XYB image
-
-    Returns:
-        Normalized XYB image with values in a positive range
-    """
-    # Make a copy to avoid modifying the original
-    img = img_xyb.copy()
-
-    # Apply the same transformations as in the C++ MakePositiveXYB function
-    img[:, :, 2] = (img[:, :, 2] - img[:, :, 1]) + 0.55  # B-Y and shift
-    img[:, :, 0] = img[:, :, 0] * 14.0 + 0.42  # Scale and shift X
-    img[:, :, 1] += 0.01  # Shift Y
-
-    return img
-
-
-def downsample(img, factor):
-    """
-    Downsample an image by a given factor.
-
-    Args:
-        img: Input image as numpy array
-        factor: Downsampling factor
-
-    Returns:
-        Downsampled image
-    """
-    if factor == 1:
-        return img
-
-    # Use CV2 resize with area interpolation for best quality downsampling
-    h, w = img.shape[:2]
-    new_h, new_w = h // factor, w // factor
-
-    result = np.zeros((new_h, new_w, img.shape[2]), dtype=img.dtype)
-
-    for c in range(img.shape[2]):
-        result[:, :, c] = cv2.resize(
-            img[:, :, c], (new_w, new_h), interpolation=cv2.INTER_AREA
-        )
-
-    return result
-
-
-def gaussian_blur(img, sigma=1.5):
-    """
-    Apply Gaussian blur to an image.
-
-    Args:
-        img: Input image as numpy array
-        sigma: Standard deviation for Gaussian kernel
-
-    Returns:
-        Blurred image
-    """
-    result = np.zeros_like(img)
-
-    # Apply Gaussian blur to each channel
-    for c in range(img.shape[2]):
-        result[:, :, c] = ndimage.gaussian_filter(img[:, :, c], sigma=sigma)
-
-    return result
-
-
-def to_the_4th(x):
-    """Raise x to the 4th power."""
-    x_sq = x * x
-    return x_sq * x_sq
-
-
-def calculate_ssim_map(m1, m2, s11, s22, s12, plane_averages):
-    """
-    Calculate SSIM map and norms.
-
-    Args:
-        m1, m2: Mean images
-        s11, s22: Variance images
-        s12: Covariance image
-        plane_averages: Output array for results
-    """
-    h, w = m1.shape[1:3]
-    one_per_pixels = 1.0 / (h * w)
-
-    for c in range(3):  # For each channel
-        sum1 = [0.0, 0.0]  # For L1 and L4 norms
-
-        # Calculate modified SSIM index for each pixel
-        for y in range(h):
-            for x in range(w):
-                mu1 = m1[c, y, x]
-                mu2 = m2[c, y, x]
-                mu11 = mu1 * mu1
-                mu22 = mu2 * mu2
-                mu12 = mu1 * mu2
-
-                # Modified SSIM formula (without double gamma correction)
-                num_m = 1.0 - (mu1 - mu2) * (mu1 - mu2)
-                num_s = 2 * (s12[c, y, x] - mu12) + kC2
-                denom_s = (s11[c, y, x] - mu11) + (s22[c, y, x] - mu22) + kC2
-
-                # Error is 1 - SSIM
-                d = 1.0 - (num_m * num_s / denom_s)
-                d = max(d, 0.0)
-
-                # L1 norm (mean)
-                sum1[0] += d
-                # L4 norm
-                sum1[1] += to_the_4th(d)
-
-        # Store results
-        plane_averages[c * 2] = one_per_pixels * sum1[0]
-        plane_averages[c * 2 + 1] = np.sqrt(np.sqrt(one_per_pixels * sum1[1]))
-
-
-def calculate_edge_diff_map(img1, mu1, img2, mu2, plane_averages):
-    """
-    Calculate edge difference maps for ringing and blurring detection.
-
-    Args:
-        img1, img2: Original and distorted images
-        mu1, mu2: Blurred versions of img1 and img2
-        plane_averages: Output array for results
-    """
-    h, w = img1.shape[1:3]
-    one_per_pixels = 1.0 / (h * w)
-
-    for c in range(3):  # For each channel
-        sum1 = [0.0, 0.0, 0.0, 0.0]  # For ringing (L1, L4) and blurring (L1, L4)
-
-        for y in range(h):
-            for x in range(w):
-                # Edge strength ratio: how much stronger are edges in distorted vs original
-                d1 = (1.0 + abs(img2[c, y, x] - mu2[c, y, x])) / (
-                    1.0 + abs(img1[c, y, x] - mu1[c, y, x])
-                ) - 1.0
-
-                # d1 > 0: distorted has an edge where original is smooth (ringing, etc.)
-                artifact = max(d1, 0.0)
-                sum1[0] += artifact
-                sum1[1] += to_the_4th(artifact)
-
-                # d1 < 0: original has an edge where distorted is smooth (blurring, etc.)
-                detail_lost = max(-d1, 0.0)
-                sum1[2] += detail_lost
-                sum1[3] += to_the_4th(detail_lost)
-
-        # Store results
-        plane_averages[c * 4] = one_per_pixels * sum1[0]  # Ringing L1
-        plane_averages[c * 4 + 1] = np.sqrt(
-            np.sqrt(one_per_pixels * sum1[1])
-        )  # Ringing L4
-        plane_averages[c * 4 + 2] = one_per_pixels * sum1[2]  # Blurring L1
-        plane_averages[c * 4 + 3] = np.sqrt(
-            np.sqrt(one_per_pixels * sum1[3])
-        )  # Blurring L4
-
-
-def alpha_blend(img_array, alpha_array, bg=0.5):
-    """
-    Apply alpha blending with a background color.
-
-    Args:
-        img_array: RGB image array
-        alpha_array: Alpha channel array
-        bg: Background intensity (0-1)
-
-    Returns:
-        Blended RGB image
-    """
-    return (
-        alpha_array[:, :, np.newaxis] * img_array
-        + (1 - alpha_array[:, :, np.newaxis]) * bg
-    )
-
-
-def calculate_ssimulacra2(reference_img, distorted_img):
-    """
-    Calculate the SSIMULACRA2 score between reference and distorted images.
-
-    Args:
-        reference_img: PIL Image object of the reference image
-        distorted_img: PIL Image object of the distorted image
-
-    Returns:
-        float: SSIMULACRA2 score (0-100, higher is better)
-    """
-    # Check if images are identical
-    ref_array = np.array(reference_img)
-    dist_array = np.array(distorted_img)
-
-    if np.array_equal(ref_array, dist_array):
-        return 100.0
-
-    # Ensure images are in RGB
-    ref_rgb = reference_img.convert("RGB")
-    dist_rgb = distorted_img.convert("RGB")
-
-    # Convert PIL images to numpy arrays in range [0, 1]
-    ref_array = np.array(ref_rgb).astype(np.float32) / 255.0
-    dist_array = np.array(dist_rgb).astype(np.float32) / 255.0
-
-    # Handle alpha if present
-    has_alpha = False
-    alpha = None
-
-    if reference_img.mode == "RGBA":
-        has_alpha = True
-        alpha = np.array(reference_img.split()[3]).astype(np.float32) / 255.0
-
-    # Convert RGB to linear RGB (assuming images are in sRGB)
-    def srgb_to_linear(x):
-        return np.where(x <= 0.04045, x / 12.92, ((x + 0.055) / 1.055) ** 2.4)
-
-    ref_linear = srgb_to_linear(ref_array)
-    dist_linear = srgb_to_linear(dist_array)
-
-    # If there's alpha, we need to calculate scores for dark and light backgrounds
-    if has_alpha:
-        # Calculate for dark background (bg=0.1)
-        ref_dark = alpha_blend(ref_linear, alpha, 0.1)
-        dist_dark = alpha_blend(dist_linear, alpha, 0.1)
-
-        # Calculate for light background (bg=0.9)
-        ref_light = alpha_blend(ref_linear, alpha, 0.9)
-        dist_light = alpha_blend(dist_linear, alpha, 0.9)
-
-        # Calculate scores for both backgrounds
-        score_dark = compute_ssimulacra2_core(ref_dark, dist_dark)
-        score_light = compute_ssimulacra2_core(ref_light, dist_light)
-
-        # Return the worse of the two scores
-        return min(score_dark, score_light)
-    else:
-        # No alpha, just calculate the score directly
-        return compute_ssimulacra2_core(ref_linear, dist_linear)
-
-
-def compute_ssimulacra2_core(ref_linear, dist_linear):
-    """
-    Core computation of SSIMULACRA2 score for linear RGB images.
-
-    Args:
-        ref_linear: Linear RGB reference image as numpy array
-        dist_linear: Linear RGB distorted image as numpy array
-
-    Returns:
-        float: SSIMULACRA2 score (0-100, higher is better)
-    """
-    # Convert from linear RGB to XYB
-    ref_xyb = rgb_to_xyb(ref_linear)
-    dist_xyb = rgb_to_xyb(dist_linear)
-
-    # Normalize to positive range
-    ref_xyb = make_positive_xyb(ref_xyb)
+def compute_ssimulacra2(orig_path, dist_path, bg=0.5):
+    """Compute SSIMULACRA2 score between original and distorted images."""
+    # Load images
+    orig_img = np.array(Image.open(orig_path).convert("RGB"), dtype=np.float32)
+    dist_img = np.array(Image.open(dist_path).convert("RGB"), dtype=np.float32)
+
+    # Check if alpha channel exists (assuming 4-channel means RGBA)
+    orig_alpha = None
+    dist_alpha = None
+    if len(orig_img.shape) > 2 and orig_img.shape[2] == 4:
+        orig_alpha = orig_img[:, :, 3] / 255.0
+        orig_img = orig_img[:, :, :3]
+    if len(dist_img.shape) > 2 and dist_img.shape[2] == 4:
+        dist_alpha = dist_img[:, :, 3] / 255.0
+        dist_img = dist_img[:, :, :3]
+
+    # Alpha blending if needed
+    if orig_alpha is not None:
+        orig_img = alpha_blend(orig_img, orig_alpha, bg)
+    if dist_alpha is not None:
+        dist_img = alpha_blend(dist_img, dist_alpha, bg)
+
+    # Convert sRGB to linear RGB
+    orig_linear = srgb_to_linear(orig_img)
+    dist_linear = srgb_to_linear(dist_img)
+
+    # Convert to XYB
+    orig_xyb = linear_rgb_to_xyb(orig_linear)
+    dist_xyb = linear_rgb_to_xyb(dist_linear)
+
+    # Make XYB values positive
+    orig_xyb = make_positive_xyb(orig_xyb)
     dist_xyb = make_positive_xyb(dist_xyb)
 
-    # Transpose to channel-first for easier processing
-    ref_xyb = np.transpose(ref_xyb, (2, 0, 1))
-    dist_xyb = np.transpose(dist_xyb, (2, 0, 1))
-
-    # Create result structure
+    # Initialize multi-scale metric
     msssim = Msssim()
 
-    # Process each scale
+    # Process at multiple scales
+    img1 = orig_xyb
+    img2 = dist_xyb
+
     for scale in range(kNumScales):
-        if ref_xyb.shape[1] < 8 or ref_xyb.shape[2] < 8:
+        # Check if image is too small to process
+        if img1.shape[0] < 8 or img1.shape[1] < 8:
             break
 
-        # Create scale result
-        scale_result = MsssimScale()
+        # Create multiplied images for variance calculations
+        mul = multiply_images(img1, img1)
+        sigma1_sq = blur_image(mul)
 
-        # Square and product images for SSIM calculation
-        ref_sq = ref_xyb * ref_xyb
-        dist_sq = dist_xyb * dist_xyb
-        ref_dist = ref_xyb * dist_xyb
+        mul = multiply_images(img2, img2)
+        sigma2_sq = blur_image(mul)
 
-        # Apply Gaussian blur
-        mu1 = gaussian_blur(ref_xyb)
-        mu2 = gaussian_blur(dist_xyb)
+        mul = multiply_images(img1, img2)
+        sigma12 = blur_image(mul)
 
-        sigma1_sq = gaussian_blur(ref_sq) - mu1 * mu1
-        sigma2_sq = gaussian_blur(dist_sq) - mu2 * mu2
-        sigma12 = gaussian_blur(ref_dist) - mu1 * mu2
+        # Compute blurred means
+        mu1 = blur_image(img1)
+        mu2 = blur_image(img2)
 
-        # Calculate SSIM map
-        calculate_ssim_map(
-            mu1, mu2, sigma1_sq, sigma2_sq, sigma12, scale_result.avg_ssim
-        )
+        # Create scale data structure
+        scale_data = MsssimScale()
 
-        # Calculate edge difference maps
-        calculate_edge_diff_map(ref_xyb, mu1, dist_xyb, mu2, scale_result.avg_edgediff)
+        # Compute SSIM map
+        scale_data.avg_ssim = ssim_map(mu1, mu2, sigma1_sq, sigma2_sq, sigma12)
 
-        # Add scale result
-        msssim.scales.append(scale_result)
+        # Compute edge difference maps
+        scale_data.avg_edgediff = edge_diff_map(img1, mu1, img2, mu2)
 
-        # Downsample for next scale (except the last iteration)
+        # Add to scales
+        msssim.scales.append(scale_data)
+
+        # Downsample for next scale (if not the last scale)
         if scale < kNumScales - 1:
-            # Transpose back to height, width, channels for downsampling
-            ref_xyb_hwc = np.transpose(ref_xyb, (1, 2, 0))
-            dist_xyb_hwc = np.transpose(dist_xyb, (1, 2, 0))
-
-            # Convert back to RGB for downsampling (better quality)
-            # This is a simplified inverse of our XYB conversion
-            ref_linear_hwc = np.zeros_like(ref_xyb_hwc)
-            dist_linear_hwc = np.zeros_like(dist_xyb_hwc)
-
-            # Restore original scale/shift
-            ref_x = (ref_xyb_hwc[:, :, 0] - 0.42) / 14.0
-            ref_y = ref_xyb_hwc[:, :, 1] - 0.01
-            ref_b = ref_xyb_hwc[:, :, 2] - 0.55 + ref_y
-
-            dist_x = (dist_xyb_hwc[:, :, 0] - 0.42) / 14.0
-            dist_y = dist_xyb_hwc[:, :, 1] - 0.01
-            dist_b = dist_xyb_hwc[:, :, 2] - 0.55 + dist_y
-
-            # Approximate conversion from XYB to RGB
-            ref_linear_hwc[:, :, 0] = ref_y + ref_x  # R = Y + X
-            ref_linear_hwc[:, :, 1] = ref_y - ref_x  # G = Y - X
-            ref_linear_hwc[:, :, 2] = ref_b  # B
-
-            dist_linear_hwc[:, :, 0] = dist_y + dist_x
-            dist_linear_hwc[:, :, 1] = dist_y - dist_x
-            dist_linear_hwc[:, :, 2] = dist_b
-
-            # Clip to valid range
-            ref_linear_hwc = np.clip(ref_linear_hwc, 0, 1)
-            dist_linear_hwc = np.clip(dist_linear_hwc, 0, 1)
-
-            # Downsample in linear RGB
-            ref_linear_hwc = downsample(ref_linear_hwc, 2)
-            dist_linear_hwc = downsample(dist_linear_hwc, 2)
+            # Downsample in linear RGB space for better quality
+            orig_linear = downsample(orig_linear, 2, 2)
+            dist_linear = downsample(dist_linear, 2, 2)
 
             # Convert back to XYB
-            ref_xyb_downsampled = rgb_to_xyb(ref_linear_hwc)
-            dist_xyb_downsampled = rgb_to_xyb(dist_linear_hwc)
+            img1 = linear_rgb_to_xyb(orig_linear)
+            img2 = linear_rgb_to_xyb(dist_linear)
 
-            # Apply normalization again
-            ref_xyb_downsampled = make_positive_xyb(ref_xyb_downsampled)
-            dist_xyb_downsampled = make_positive_xyb(dist_xyb_downsampled)
+            # Make XYB values positive
+            img1 = make_positive_xyb(img1)
+            img2 = make_positive_xyb(img2)
 
-            # Transpose back to channel-first
-            ref_xyb = np.transpose(ref_xyb_downsampled, (2, 0, 1))
-            dist_xyb = np.transpose(dist_xyb_downsampled, (2, 0, 1))
-
-    # Calculate and return final score
+    # Compute final score
     return msssim.score()
+
+
+def compute_ssimulacra2_with_alpha(orig_path, dist_path):
+    """For images with alpha, compute SSIMULACRA2 with dark/light backgrounds."""
+    # Test if images have alpha channel
+    has_alpha = False
+
+    try:
+        img = Image.open(orig_path)
+        has_alpha = img.mode == "RGBA"
+    except:
+        pass
+
+    if not has_alpha:
+        return compute_ssimulacra2(orig_path, dist_path)
+
+    # For images with alpha, compute with dark and light backgrounds
+    score_dark = compute_ssimulacra2(orig_path, dist_path, bg=0.1)
+    score_light = compute_ssimulacra2(orig_path, dist_path, bg=0.9)
+
+    # Return the worse (lower) of the two scores
+    return min(score_dark, score_light)

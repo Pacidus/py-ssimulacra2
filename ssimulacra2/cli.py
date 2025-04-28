@@ -1,94 +1,70 @@
-"""
-Command-line interface for the SSIMULACRA2 tool.
-"""
+#!/usr/bin/env python3
+"""Command-line interface for SSIMULACRA2."""
 
 import argparse
-import os
 import sys
-import time
-from PIL import Image
-import json
-from .ssimulacra2 import calculate_ssimulacra2
+from pathlib import Path
+
+from .ssimulacra2 import compute_ssimulacra2_with_alpha
 
 
 def main():
-    """
-    Main function for the CLI.
-    """
+    """Run SSIMULACRA2 from command line."""
     parser = argparse.ArgumentParser(
-        description="Calculate SSIMULACRA2 score between reference and distorted images"
+        description="SSIMULACRA 2: Structural SIMilarity Unveiling Local And Compression Related Artifacts"
     )
-
-    parser.add_argument("reference", help="Path to the reference image")
-
-    parser.add_argument("distorted", nargs="+", help="Path to the distorted image(s)")
-
+    parser.add_argument("original", help="Path to original image")
+    parser.add_argument("distorted", help="Path to distorted image")
     parser.add_argument(
-        "-v", "--verbose", action="store_true", help="Enable verbose output"
+        "--quiet", "-q", action="store_true", help="Only output the score number"
     )
-
-    parser.add_argument("-o", "--output", help="Output file for results (JSON format)")
 
     args = parser.parse_args()
 
-    # Check if reference file exists
-    if not os.path.isfile(args.reference):
-        print(f"Error: Reference file '{args.reference}' not found")
+    # Check if files exist
+    orig_path = Path(args.original)
+    dist_path = Path(args.distorted)
+
+    if not orig_path.exists():
+        print(f"Error: Original image '{args.original}' not found", file=sys.stderr)
+        sys.exit(1)
+    if not dist_path.exists():
+        print(f"Error: Distorted image '{args.distorted}' not found", file=sys.stderr)
         sys.exit(1)
 
-    # Load reference image
     try:
-        ref_img = Image.open(args.reference)
+        score = compute_ssimulacra2_with_alpha(args.original, args.distorted)
+        print(f"{score:.8f}")
+
+        if not args.quiet:
+            print("Score interpretation:")
+            print("     negative scores: extremely low quality, very strong distortion")
+            print(
+                "     10 = very low quality (average output of cjxl -d 14 / -q 12 or libjpeg-turbo quality 14, 4:2:0)"
+            )
+            print(
+                "     30 = low quality (average output of cjxl -d 9 / -q 20 or libjpeg-turbo quality 20, 4:2:0)"
+            )
+            print(
+                "     50 = medium quality (average output of cjxl -d 5 / -q 45 or libjpeg-turbo quality 35, 4:2:0)"
+            )
+            print(
+                "     70 = high quality (hard to notice artifacts without comparison to the original)"
+            )
+            print(
+                "     80 = very high quality (impossible to distinguish from the original in a side-by-side comparison at 1:1)"
+            )
+            print(
+                "     85 = excellent quality (impossible to distinguish from the original in a flip test at 1:1)"
+            )
+            print(
+                "     90 = visually lossless (impossible to distinguish from the original in a flicker test at 1:1)"
+            )
+            print("     100 = mathematically lossless")
     except Exception as e:
-        print(f"Error loading reference image: {e}")
+        print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
-
-    # Process each distorted image
-    results = {}
-
-    for dist_path in args.distorted:
-        if not os.path.isfile(dist_path):
-            print(f"Warning: Distorted file '{dist_path}' not found, skipping")
-            continue
-
-        try:
-            if args.verbose:
-                print(f"Processing: {dist_path}")
-                start_time = time.time()
-
-            # Load distorted image
-            dist_img = Image.open(dist_path)
-
-            # Calculate score
-            score = calculate_ssimulacra2(ref_img, dist_img)
-
-            # Store result
-            results[dist_path] = score
-
-            if args.verbose:
-                elapsed = time.time() - start_time
-                print(f"  SSIMULACRA2 score: {score:.6f} (computed in {elapsed:.2f}s)")
-            else:
-                print(f"{dist_path}: {score:.6f}")
-
-        except Exception as e:
-            print(f"Error processing '{dist_path}': {e}")
-
-    # Write results to output file if specified
-    if args.output:
-        try:
-            with open(args.output, "w") as f:
-                json.dump(
-                    {"reference": args.reference, "results": results}, f, indent=2
-                )
-
-            if args.verbose:
-                print(f"Results written to: {args.output}")
-        except Exception as e:
-            print(f"Error writing output file: {e}")
-
-    return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()
