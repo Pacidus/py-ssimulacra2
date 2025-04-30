@@ -12,15 +12,15 @@ kNumScales = 6
 # From src/lib/jxl/opsin_params.h
 kM02 = 0.078
 kM00 = 0.30
-kM01 = 1.0 - kM02 - kM00  # Computed exactly as in C++
+kM01 = 1.0 - kM02 - kM00
 
 kM12 = 0.078
 kM10 = 0.23
-kM11 = 1.0 - kM12 - kM10  # Computed exactly as in C++
+kM11 = 1.0 - kM12 - kM10
 
 kM20 = 0.24342268924547819
 kM21 = 0.20476744424496821
-kM22 = 1.0 - kM20 - kM21  # Computed exactly as in C++
+kM22 = 1.0 - kM20 - kM21
 
 kB0 = 0.0037930732552754493
 kB1 = kB0
