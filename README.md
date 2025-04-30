@@ -39,7 +39,7 @@ ssimulacra2 original.png compressed.png
 ssimulacra2 original.png compressed.png --quiet
 ```
 
-### Python API
+### Python
 
 ```python
 from ssimulacra2 import compute_ssimulacra2, compute_ssimulacra2_with_alpha
@@ -69,6 +69,13 @@ print(f"Quality score with alpha: {score:.2f}")
 - Pillow (PIL)
 - scikit-image
 - OpenCV
+
+## Performances
+
+```shell
+Time (mean ± σ):      9.367 s ±  0.457 s    [User: 11.634 s, System: 0.099 s]
+Range (min … max):    9.033 s … 10.492 s    10 runs
+```
 
 ## License
 
