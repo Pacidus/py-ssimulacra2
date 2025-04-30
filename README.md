@@ -72,6 +72,7 @@ print(f"Quality score with alpha: {score:.2f}")
 
 ## Performances
 
+### v0.1.0
 Size : **1024x768**
 
 ```shell
