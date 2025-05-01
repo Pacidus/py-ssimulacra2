@@ -71,13 +71,17 @@ print(f"Quality score with alpha: {score:.2f}")
 - OpenCV
 
 ## Performances
-
-### v0.1.0
 Size : **1024x768**
 
+### v0.2.0
 ```shell
-Time (mean ± σ):      9.367 s ±  0.457 s    [User: 11.634 s, System: 0.099 s]
-Range (min … max):    9.033 s … 10.492 s    10 runs
+Time (mean ± σ):     671.5 ms ±   8.2 ms    [User: 566.1 ms, System: 100.2 ms]
+Range (min … max):   659.6 ms … 683.4 ms    10 runs
+```
+### v0.1.0
+```shell
+Time (mean ± σ):     22.447 s ±  0.197 s    [User: 22.263 s, System: 0.069 s]
+Range (min … max):   22.186 s … 22.723 s    10 runs 
 ```
 
 ## License
