@@ -37,14 +37,12 @@ dependencies = [
     "numpy>=1.19.0",
     "scipy>=1.5.0",
     "Pillow>=8.0.0",
-    "scikit-image>=0.17.2",
-    "opencv-python >= 4.11.0",
 ]
 
 [project.urls]
-Documentation = "https://github.com/yourusername/py-ssimulacra2#readme"
-Issues = "https://github.com/yourusername/py-ssimulacra2/issues"
-Source = "https://github.com/yourusername/py-ssimulacra2"
+Documentation = "https://github.com/Pacidus/py-ssimulacra2#readme"
+Issues = "https://github.com/Pacidus/py-ssimulacra2/issues"
+Source = "https://github.com/Pacidus/py-ssimulacra2"
 
 [project.scripts]
 ssimulacra2 = "ssimulacra2.cli:main"
@@ -55,7 +53,6 @@ path = "ssimulacra2/__init__.py"
 [tool.hatch.build.targets.sdist]
 include = [
     "/ssimulacra2",
-    "/tests",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -67,31 +64,14 @@ dependencies = [
     "pytest-cov",
 ]
 
-[tool.hatch.envs.test]
-dependencies = [
-    "pytest",
-    "pytest-cov",
-]
-
-[[tool.hatch.envs.test.matrix]]
-python = ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
-
-[tool.hatch.envs.test.scripts]
-run = "pytest {args:tests/}"
-cov = "pytest --cov-report=term-missing --cov-config=pyproject.toml --cov=ssimulacra2 {args:tests/}"
-cov-report = ["- coverage report"]
-cov-html = ["- coverage html"]
-
 [tool.hatch.envs.lint]
 detached = true
 dependencies = [
     "black>=23.1.0",
-    "mypy>=1.0.0",
     "ruff>=0.0.243",
 ]
 
 [tool.hatch.envs.lint.scripts]
-typing = "mypy --install-types --non-interactive {args:ssimulacra2 tests}"
 style = ["ruff {args:.}", "black --check --diff {args:.}"]
 fmt = ["black {args:.}", "ruff --fix {args:.}", "style"]
 all = ["style", "typing"]

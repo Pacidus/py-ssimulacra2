@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SSIMULACRA2 Performance Test Script
+# SSIMULACRA2 Performance Benchmark Script
 # Tests the performance of SSIMULACRA2 implementation using Hyperfine
 
 set -e
@@ -442,7 +442,7 @@ main() {
     # Return to the original branch
     git checkout "$CURRENT_BRANCH" 2>/dev/null
     
-    echo "Performance testing completed."
+    echo "Performance benchmarking completed."
 }
 
 main "$@"

@@ -72,8 +72,6 @@ You'll need:
 - NumPy
 - SciPy
 - Pillow (PIL)
-- scikit-image
-- OpenCV
 
 ## Performance
 
