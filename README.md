@@ -73,16 +73,11 @@ print(f"Quality score with alpha: {score:.2f}")
 ## Performances
 Size : **1024x768**
 
-### v0.2.0
-```shell
-Time (mean ± σ):     671.5 ms ±   8.2 ms    [User: 566.1 ms, System: 100.2 ms]
-Range (min … max):   659.6 ms … 683.4 ms    10 runs
-```
-### v0.1.0
-```shell
-Time (mean ± σ):     22.447 s ±  0.197 s    [User: 22.263 s, System: 0.069 s]
-Range (min … max):   22.186 s … 22.723 s    10 runs 
-```
+| Command | Mean [s] | Min [s] | Max [s] | Relative |
+|:---|---:|---:|---:|---:|
+| `v0.1.0` | 22.456 ± 0.144 | 22.245 | 22.680 | 33.29 ± 0.59 |
+| `v0.2.0` | 0.674 ± 0.011 | 0.661 | 0.696 | 1.00 |
+| `HEAD` | 0.689 ± 0.028 | 0.666 | 0.764 | 1.02 ± 0.05 |
 
 ## License
 
