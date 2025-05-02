@@ -3,43 +3,51 @@
 [![PyPI - Version](https://img.shields.io/pypi/v/ssimulacra2.svg)](https://pypi.org/project/ssimulacra2)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/ssimulacra2.svg)](https://pypi.org/project/ssimulacra2)
 
-Python implementation of SSIMULACRA2 (Structural SIMilarity Unveiling Local And Compression Related Artifacts) - a perceptual image quality metric designed to accurately detect compression artifacts.
+A Python implementation of SSIMULACRA2 (Structural SIMilarity Unveiling Local And Compression Related Artifacts) - a perceptual image quality metric that helps you detect and measure compression artifacts.
 
-## Description
+## What is SSIMULACRA2?
 
-SSIMULACRA2 is a full-reference image quality metric that aims to estimate human perception of image quality, specifically focusing on compression artifacts. This Python package provides a clean, efficient implementation that closely follows the original C++ algorithm.
+SSIMULACRA2 is a full-reference image quality metric designed to mimic how humans perceive image quality, with a special focus on compression artifacts. This Python package offers a clean and efficient implementation that closely follows the original C++ algorithm from the JPEG XL project.
 
-SSIMULACRA2 scores range from 100 (perfect quality) down to negative values (extremely poor quality):
+Want to know if your compressed images still look good? SSIMULACRA2 gives you a score from 100 (perfect quality) down to negative values (terrible quality) to help you decide:
 
-- **negative scores**: extremely low quality, very strong distortion
-- **10**: very low quality (average output of cjxl -d 14 / -q 12 or libjpeg-turbo quality 14, 4:2:0)
-- **30**: low quality (average output of cjxl -d 9 / -q 20 or libjpeg-turbo quality 20, 4:2:0)
-- **50**: medium quality (average output of cjxl -d 5 / -q 45 or libjpeg-turbo quality 35, 4:2:0)
-- **70**: high quality (hard to notice artifacts without comparison to the original)
-- **80**: very high quality (impossible to distinguish from the original in a side-by-side comparison at 1:1)
-- **85**: excellent quality (impossible to distinguish from the original in a flip test at 1:1)
-- **90**: visually lossless (impossible to distinguish from the original in a flicker test at 1:1)
-- **100**: mathematically lossless
+- **Negative scores**: You've gone too far! Extremely low quality with very strong distortion
+- **10**: Very low quality - comparable to what you'd get from cjxl -d 14 / -q 12 or libjpeg-turbo quality 14, 4:2:0
+- **30**: Low quality - similar to output from cjxl -d 9 / -q 20 or libjpeg-turbo quality 20, 4:2:0
+- **50**: Medium quality - like what cjxl -d 5 / -q 45 or libjpeg-turbo quality 35, 4:2:0 would produce
+- **70**: High quality - you'd have trouble noticing artifacts without comparing to the original
+- **80**: Very high quality - most people couldn't tell the difference from the original in a side-by-side comparison
+- **85**: Excellent quality - virtually impossible to distinguish from the original in a flip test
+- **90**: Visually lossless - even in a flicker test at 1:1, you can't tell the difference
+- **100**: Mathematically lossless - pixel-perfect match to the original
 
-## Installation
+## Getting Started
+
+### Installation
+
+It's easy to install via pip:
 
 ```console
 pip install ssimulacra2
 ```
 
-## Usage
+### Usage
 
-### Command Line
+#### Command Line
+
+Simple and straightforward:
 
 ```console
-# Basic usage
+# Basic usage - get the score with interpretation
 ssimulacra2 original.png compressed.png
 
-# For just the score without interpretation
+# Just the score, no extra info
 ssimulacra2 original.png compressed.png --quiet
 ```
 
-### Python
+#### Python
+
+Import directly into your Python projects:
 
 ```python
 from ssimulacra2 import compute_ssimulacra2, compute_ssimulacra2_with_alpha
@@ -53,16 +61,13 @@ score = compute_ssimulacra2_with_alpha("original.png", "compressed.png")
 print(f"Quality score with alpha: {score:.2f}")
 ```
 
-## Features
+## Goal
 
-- **Accurate**: Closely follows the original C++ implementation
-- **Alpha Support**: Special handling for images with transparency
-- **Multi-scale Analysis**: Examines image quality at multiple resolution scales
-- **XYB Color Space**: Uses a perceptual color space for more accurate results
-- **Easy to Use**: Simple command-line interface and Python API
+This implementation aims to closely match the original C++ algorithm, providing results consistent with the reference code.
 
 ## Requirements
 
+You'll need:
 - Python 3.8+
 - NumPy
 - SciPy
@@ -70,14 +75,17 @@ print(f"Quality score with alpha: {score:.2f}")
 - scikit-image
 - OpenCV
 
-## Performances
-Size : **1024x768**
+## Performance
 
-| Command | Mean [s] | Min [s] | Max [s] | Relative |
+Performance benchmarks for a 1024x768 image:
+
+| Version | Mean [s] | Min [s] | Max [s] | Relative |
 |:---|---:|---:|---:|---:|
 | `v0.1.0` | 22.456 ± 0.144 | 22.245 | 22.680 | 33.29 ± 0.59 |
 | `v0.2.0` | 0.674 ± 0.011 | 0.661 | 0.696 | 1.00 |
 | `HEAD` | 0.689 ± 0.028 | 0.666 | 0.764 | 1.02 ± 0.05 |
+
+The dramatic speed improvement from v0.1.0 to v0.2.0 comes from better leveraging NumPy's vectorized operations. Note that the slight differences in results between versions are due to ongoing experimentation with Gaussian blur parameters to better match the original implementation.
 
 ## License
 
