@@ -10,7 +10,7 @@ A Python implementation of SSIMULACRA2 (Structural SIMilarity Unveiling Local An
 
 SSIMULACRA2 is a full-reference image quality metric that mimics human perception of image quality, focusing specifically on compression artifacts. This Python package provides an efficient implementation that closely follows the original C++ algorithm from the JPEG XL project.
 
-For detailed information about the metric and score interpretation, please refer to the [original SSIMULACRA2 implementation](https://github.com/libjxl/libjxl/tree/main/tools/ssimulacra2) in the JPEG XL repository.
+For detailed information about the metric and score interpretation, please refer to the [original SSIMULACRA2 implementation](https://github.com/cloudinary/ssimulacra2) by cloudinary.
 
 ## Installation
 
