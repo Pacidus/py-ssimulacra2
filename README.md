@@ -58,7 +58,9 @@ score = compute_ssimulacra2_with_alpha("original.png", "compressed.png")
 print(f"Quality score with alpha: {score:.2f}")
 ```
 
-## Performance
+## Performance and Benchmarking
+
+### Performance Metrics
 
 This implementation is optimized for speed while maintaining accuracy. Performance benchmarks for a 1024x768 image:
 
@@ -69,6 +71,43 @@ This implementation is optimized for speed while maintaining accuracy. Performan
 | `HEAD` | 0.689 ± 0.028 | 0.666 | 0.764 | 1.02 ± 0.05 |
 
 The dramatic speed improvement from v0.1.0 to v0.2.0 comes from better leveraging NumPy's vectorized operations.
+
+### Running Your Own Benchmarks
+
+The package includes a performance benchmarking script that allows you to evaluate the speed of different versions:
+
+```bash
+# Benchmark current version
+./performance_benchmark.sh original.png compressed.png
+
+# Benchmark a specific version
+./performance_benchmark.sh original.png compressed.png --tag v0.2.0
+
+# Compare all available versions
+./performance_benchmark.sh original.png compressed.png --full
+
+# Customize benchmark parameters
+./performance_benchmark.sh original.png compressed.png --warmup 5 --runs 20
+```
+
+#### Benchmark Script Options
+
+```
+Usage: ./performance_benchmark.sh <original_image> <compressed_image> [options]
+Options:
+  --full                Test all tagged versions simultaneously
+  --tag <tag_version>   Test a specific tagged version (e.g., v0.1.0)
+  --warmup <count>      Number of warmup runs (default: 2)
+  --runs <count>        Number of benchmark runs (default: 10)
+  --debug               Display debugging information
+  --help                Show this help message
+```
+
+### Using with press_it Benchmarks
+
+SSIMULACRA2 is used by the [press_it](https://github.com/Pacidus/press_it) package's benchmark tool to evaluate image compression quality across different formats. When running `press-benchmark`, this Python implementation is used to calculate quality scores for compressed images (alongside C++ and Rust implementations when available).
+
+For more comprehensive compression benchmarking, refer to the press_it documentation.
 
 ## Requirements
 
