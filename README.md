@@ -23,12 +23,17 @@ pip install ssimulacra2
 ### Command Line
 
 ```console
-# Basic usage with detailed quality interpretation
+# Basic usage (outputs only the score)
 ssymulacra2 original.png compressed.png
 
-# Just the score, no extra info
-ssymulacra2 original.png compressed.png --quiet
+# With detailed quality interpretation
+ssymulacra2 original.png compressed.png --verbose
+
+# Show version information
+ssymulacra2 --version
 ```
+
+> **Note**: The command name is `ssymulacra2` (with a 'y') to avoid conflict with the C++ implementation named `ssimulacra2`.
 
 ### Python API
 
