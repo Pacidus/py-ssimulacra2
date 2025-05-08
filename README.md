@@ -39,10 +39,10 @@ Simple and straightforward:
 
 ```console
 # Basic usage - get the score with interpretation
-ssimulacra2 original.png compressed.png
+ssymulacra2 original.png compressed.png
 
 # Just the score, no extra info
-ssimulacra2 original.png compressed.png --quiet
+ssymulacra2 original.png compressed.png --quiet
 ```
 
 #### Python
