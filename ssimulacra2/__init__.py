@@ -4,7 +4,7 @@
 
 """SSIMULACRA2: Structural SIMilarity Unveiling Local And Compression Related Artifacts."""
 
-__version__ = "0.2.2"
+__version__ = "0.3.0"
 
 from .ssimulacra2 import (
     compute_ssimulacra2,

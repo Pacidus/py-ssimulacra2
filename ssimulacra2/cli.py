@@ -5,38 +5,49 @@ import argparse
 import sys
 from pathlib import Path
 
+from . import __version__
 from .ssimulacra2 import compute_ssimulacra2_with_alpha
 
 
 def main():
     """Run SSIMULACRA2 from command line."""
     parser = argparse.ArgumentParser(
-        description="SSIMULACRA 2: Structural SIMilarity Unveiling Local And Compression Related Artifacts"
+        description="SSIMULACRA2: Structural SIMilarity Unveiling Local And Compression Related Artifacts",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("original", help="Path to original image")
-    parser.add_argument("distorted", help="Path to distorted image")
+    parser.add_argument("input_image", help="Path to original image")
+    parser.add_argument("distorted_image", help="Path to distorted image")
     parser.add_argument(
-        "--quiet", "-q", action="store_true", help="Only output the score number"
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="Show detailed score interpretation",
+    )
+    parser.add_argument(
+        "--version", "-V", action="version", version=f"ssymulacra2 {__version__}"
     )
 
     args = parser.parse_args()
 
     # Check if files exist
-    orig_path = Path(args.original)
-    dist_path = Path(args.distorted)
+    input_path = Path(args.input_image)
+    distorted_path = Path(args.distorted_image)
 
-    if not orig_path.exists():
-        print(f"Error: Original image '{args.original}' not found", file=sys.stderr)
+    if not input_path.exists():
+        print(f"Error: Original image '{args.input_image}' not found", file=sys.stderr)
         sys.exit(1)
-    if not dist_path.exists():
-        print(f"Error: Distorted image '{args.distorted}' not found", file=sys.stderr)
+    if not distorted_path.exists():
+        print(
+            f"Error: Distorted image '{args.distorted_image}' not found",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     try:
-        score = compute_ssimulacra2_with_alpha(args.original, args.distorted)
+        score = compute_ssimulacra2_with_alpha(args.input_image, args.distorted_image)
         print(f"{score:.8f}")
 
-        if not args.quiet:
+        if args.verbose:
             print("Score interpretation:")
             print("     negative scores: extremely low quality, very strong distortion")
             print(
