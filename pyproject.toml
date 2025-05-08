@@ -45,7 +45,7 @@ Issues = "https://github.com/Pacidus/py-ssimulacra2/issues"
 Source = "https://github.com/Pacidus/py-ssimulacra2"
 
 [project.scripts]
-ssimulacra2 = "ssimulacra2.cli:main"
+ssymulacra2 = "ssimulacra2.cli:main"
 
 [tool.hatch.version]
 path = "ssimulacra2/__init__.py"
